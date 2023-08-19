@@ -1,0 +1,28 @@
+# List of number to scrap the data from
+# Format [[we, number, password], [vodafone, number,password]]
+# careful of the identation
+# you can choose between (vodafone and we) for the first field
+# in case of WE its for landlines (not tested on mobile numbers)
+numbers.list: [
+  ["vodafone", "010XXXXXXXX", "account_pass"],
+  ["we", "0200000000", "account_pass"],
+]
+
+# Log output to file
+# if you want to log to a file it must be True else its False
+logging.verbose: True
+
+# log file location
+logging.dest: "usage.log"
+
+# send alerts to slack
+slack.alert: False
+
+# slack webhook
+slack.webhook: ""
+
+# alert conditions
+# remaining percent less than a specific number
+# remaining days to renew your bundle less than a specific number
+remaining.mb: 10
+remaining.days: 7

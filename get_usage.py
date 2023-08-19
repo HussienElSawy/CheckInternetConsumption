@@ -1,13 +1,13 @@
 import requests
 import json
 import time
+import yaml
 from threading import Thread
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from datetime import datetime, date
 
-webhook = ""
 log_file = 'usage.log'
 
 #function to write the output to file
@@ -28,7 +28,7 @@ def send_alert_slack(webhook, data, pct_alert=10, days_alert=7):
         
 
 #fubnction to access vodafone.com.eg website and scrap the data needed 
-def get_voda_usage(username, password):
+def get_voda_usage(username, password, isVerbose=True, logFile=log_file, isAlert=False, slackWebhook="", MBAlert=10, daysAlert=7 ):
     try:
         options = Options()
         options.add_argument('--headless=new')
@@ -38,15 +38,15 @@ def get_voda_usage(username, password):
         driver = webdriver.Chrome(options=options)
         driver.get('https://web.vodafone.com.eg/spa/redHome')
         driver.get(driver.current_url)
-        time.sleep(1)
+        time.sleep(4)
         usernameElement = driver.find_element(By.ID, 'username')
         usernameElement.send_keys(username)
         passwordElement = driver.find_element(By.ID, 'password')
         passwordElement.send_keys(password)
-        time.sleep(1)
+        time.sleep(4)
         btnElement = driver.find_element(By.ID, 'submitBtn')
         btnElement.click()
-        time.sleep(2)
+        time.sleep(4)
         totalMB = int(driver.find_element(By.ID, 'txt-total-').text.replace(',',''))
         remainingMB = int(driver.find_element(By.ID, 'txt-remaining-').text.replace(',',''))
         remainingDays = driver.find_element(By.CLASS_NAME, 'card-body-subtitle.mt-2').text.split(' ')[0]
@@ -60,16 +60,18 @@ def get_voda_usage(username, password):
                 'Remaining Days' : remainingDays
                 }
         driver.quit()
-    except:
+    except Exception as error_message:
         response = {
                     'Timestamp' : datetime.now().strftime("%d-%m-%Y %H:%M:%S"),
                     'MSISDN' : username,
                     'Error_code': "500",
-                    'Response'  : "Something went wrong!"
+                    'Response'  : error_message
                 }
-    send_alert_slack(webhook, response)
-    log_usage(log_file, str(response))
-    #return response
+    if isVerbose:            
+        log_usage(logFile, str(response))
+    if isAlert:
+        send_alert_slack(slackWebhook, response, MBAlert, daysAlert)
+    print(response)
 
 
 
@@ -93,7 +95,7 @@ def handle_we_response(action, url, headers={}, payload={}, username=""):
                 }
     return response_json
 
-def get_we_usage(username, password):
+def get_we_usage(username, password, isVerbose=True, logFile=log_file, isAlert=False, slackWebhook="", MBAlert=10, daysAlert=7):
     ## TE.EG URLs
     baseURL = "https://api-my.te.eg/api/"
     generateTokenAPI = "user/generatetoken?channelId=WEB_APP"
@@ -124,19 +126,63 @@ def get_we_usage(username, password):
                         'Remaining pct' : str(round((remainingMB*100)/totalMB))+"%",
                         'Remaining Days' : str(remainingDays.days)
                     }
-                
-    send_alert_slack(webhook, response)
-    log_usage(log_file, str(response))
-    #return response
+    if isVerbose:            
+        log_usage(logFile, str(response))
+    if isAlert:
+        send_alert_slack(slackWebhook, response, MBAlert, daysAlert)
+    
+    print(response)
 
-
-while True:
-    t1 = Thread(target=get_voda_usage("", ""))
-    t1.start()
-    t2 = Thread(target=get_voda_usage("", ""))
-    t2.start()
-    t3 = Thread(target=get_voda_usage("", ""))
-    t3.start()
-    t4 = Thread(target=get_we_usage("" ,""))
-    t4.start()
+alive = True
+while alive:
+    with open("config.yml", "r") as f:
+        config = yaml.safe_load(f)
+    if 'numbers.list' not in config:
+        print("Missing numbers.list in config.yml!")
+        alive = False
+        break
+    else:
+        if 'logging.verbose' not in config:
+            config['logging.verbose'] = True
+        if 'logging.dest' not in config:
+            config['logging.dest'] = ""
+        if 'slack.alert' not in config:
+            config['slack.alert'] = False
+        if 'remaining.mb' not in config:
+            config['remaining.mb'] = 10
+        if 'remaining.days' not in config:
+            config['remaining.days'] = 7
+        if 'slack.alert' in config:
+            if dict(config).get('slack.alert') == True and dict(config).get('slack.webhook') == None:
+                print("Missing slack.webhook value!")
+                alive = False
+                break
+            if dict(config).get('numbers.list') == None or len(config['numbers.list']) == 0:
+                print("Missing numbers.list values!")
+                alive = False
+                break
+            else:
+                for number in range(len(config['numbers.list'])):
+                    if config['numbers.list'][number][0] == "vodafone":
+                        get_voda_usage(config['numbers.list'][number][1], 
+                                    config['numbers.list'][number][2],
+                                    config['logging.verbose'],
+                                    config['logging.dest'],
+                                    config['slack.alert'],
+                                    config['slack.webhook'],
+                                    config['remaining.mb'],
+                                    config['remaining.days'])
+                    elif config['numbers.list'][number][0] == "we":
+                        get_we_usage(config['numbers.list'][number][1], 
+                                    config['numbers.list'][number][2],
+                                    config['logging.verbose'],
+                                    config['logging.dest'],
+                                    config['slack.alert'],
+                                    config['slack.webhook'],
+                                    config['remaining.mb'],
+                                    config['remaining.days'])
+                    else:
+                        print("Company must be WE or Vodafone!")
+                        alive = False
+                        break
     time.sleep(3600)
